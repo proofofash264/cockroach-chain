@@ -34,6 +34,10 @@ func BlockedAddresses() map[string]bool {
 	sort.Strings(accs)
 
 	for _, acc := range accs {
+		// Users must be able to send COCKROACH to the burn module address.
+		if acc == "burn" {
+			continue
+		}
 		blockedAddrs[authtypes.NewModuleAddress(acc).String()] = true
 	}
 
@@ -63,6 +67,10 @@ var maccPerms = map[string][]string{
 	vmtypes.ModuleName:        {authtypes.Minter, authtypes.Burner},
 	feemarkettypes.ModuleName: nil,
 	erc20types.ModuleName:     {authtypes.Minter, authtypes.Burner},
+
+	// Cockroach Chain modules
+	"burn":    {authtypes.Burner},
+	"standby": {authtypes.Minter},
 }
 
 // GetMaccPerms returns a copy of the module account permissions

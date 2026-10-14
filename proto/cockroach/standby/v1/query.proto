@@ -1,0 +1,13 @@
+syntax = "proto3";
+package cockroach.standby.v1;
+option go_package = "github.com/cosmos/evm/evmd/x/standby/types";
+import "gogoproto/gogo.proto";
+import "cockroach/standby/v1/standby.proto";
+
+service Query {
+  rpc Params(QueryParamsRequest) returns (QueryParamsResponse);
+}
+message QueryParamsRequest {}
+message QueryParamsResponse {
+  Params params = 1 [(gogoproto.nullable) = false];
+}

@@ -102,7 +102,12 @@ func genesisStateWithValSet(codec codec.Codec, genesisState testutil.GenesisStat
 			Description:       stakingtypes.Description{},
 			UnbondingHeight:   int64(0),
 			UnbondingTime:     time.Unix(0, 0).UTC(),
-			Commission:        stakingtypes.NewCommission(math.LegacyZeroDec(), math.LegacyZeroDec(), math.LegacyZeroDec()),
+			// Cockroach Chain requires commission rate and max rate exactly 0.10.
+			Commission: stakingtypes.NewCommission(
+				math.LegacyNewDecWithPrec(10, 2),
+				math.LegacyNewDecWithPrec(10, 2),
+				math.LegacyZeroDec(),
+			),
 			MinSelfDelegation: math.ZeroInt(),
 		}
 		validators = append(validators, validator)

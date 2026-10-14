@@ -95,7 +95,12 @@ func setupWithGenesisValSet(tb testing.TB, valSet *cmttypes.ValidatorSet, genAcc
 			Description:       stakingtypes.Description{},
 			UnbondingHeight:   int64(0),
 			UnbondingTime:     time.Unix(0, 0).UTC(),
-			Commission:        stakingtypes.NewCommission(sdkmath.LegacyZeroDec(), sdkmath.LegacyZeroDec(), sdkmath.LegacyZeroDec()),
+			// Cockroach Chain requires commission rate and max rate exactly 0.10.
+			Commission: stakingtypes.NewCommission(
+				sdkmath.LegacyNewDecWithPrec(10, 2),
+				sdkmath.LegacyNewDecWithPrec(10, 2),
+				sdkmath.LegacyZeroDec(),
+			),
 			MinSelfDelegation: sdkmath.ZeroInt(),
 		}
 

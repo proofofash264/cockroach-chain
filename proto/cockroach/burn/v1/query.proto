@@ -1,0 +1,24 @@
+syntax = "proto3";
+package cockroach.burn.v1;
+option go_package = "github.com/cosmos/evm/evmd/x/burn/types";
+
+import "gogoproto/gogo.proto";
+import "cosmos_proto/cosmos.proto";
+import "cockroach/burn/v1/burn.proto";
+
+service Query {
+  rpc Params(QueryParamsRequest) returns (QueryParamsResponse);
+  rpc TotalBurned(QueryTotalBurnedRequest) returns (QueryTotalBurnedResponse);
+}
+message QueryParamsRequest {}
+message QueryParamsResponse {
+  Params params = 1 [(gogoproto.nullable) = false];
+}
+message QueryTotalBurnedRequest {}
+message QueryTotalBurnedResponse {
+  string total_burned = 1 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}

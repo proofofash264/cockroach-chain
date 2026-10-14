@@ -1,0 +1,11 @@
+syntax = "proto3";
+package cockroach.blacklist.v1;
+option go_package = "github.com/cosmos/evm/evmd/x/blacklist/types";
+
+message FrozenEntry {
+  string address = 1;
+  string reason = 2;
+}
+message GenesisState {
+  repeated FrozenEntry entries = 1;
+}

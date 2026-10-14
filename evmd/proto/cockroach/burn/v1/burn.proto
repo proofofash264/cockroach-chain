@@ -1,0 +1,31 @@
+syntax = "proto3";
+package cockroach.burn.v1;
+option go_package = "github.com/cosmos/evm/evmd/x/burn/types";
+
+message Params {
+  string burn_fraction = 1;
+}
+
+message GenesisState {
+  Params params = 1;
+  string total_burned = 2;
+}
+
+message MsgUpdateParams {
+  string authority = 1;
+  Params params = 2;
+}
+message MsgUpdateParamsResponse {}
+
+message QueryParamsRequest {}
+message QueryParamsResponse { Params params = 1; }
+message QueryTotalBurnedRequest {}
+message QueryTotalBurnedResponse { string total_burned = 1; }
+
+service Msg {
+  rpc UpdateParams(MsgUpdateParams) returns (MsgUpdateParamsResponse);
+}
+service Query {
+  rpc Params(QueryParamsRequest) returns (QueryParamsResponse);
+  rpc TotalBurned(QueryTotalBurnedRequest) returns (QueryTotalBurnedResponse);
+}

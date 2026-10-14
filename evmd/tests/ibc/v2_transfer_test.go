@@ -21,6 +21,7 @@ import (
 
 	"github.com/cosmos/evm/evmd"
 	"github.com/cosmos/evm/evmd/tests/integration"
+	"github.com/cosmos/evm/testutil/constants"
 	evmibctesting "github.com/cosmos/evm/testutil/ibc"
 	"github.com/cosmos/ibc-go/v11/modules/apps/transfer/types"
 	clienttypes "github.com/cosmos/ibc-go/v11/modules/core/02-client/types"
@@ -54,10 +55,12 @@ type TransferTestSuiteV2 struct {
 const invalidPortID = "invalidportid"
 
 func (suite *TransferTestSuiteV2) SetupTest() {
-	suite.coordinator = evmibctesting.NewCoordinator(suite.T(), 1, 2, integration.SetupEvmd)
+	// Use three EVM chains: companion ibc-go simapps hardcode the "cosmos"
+	// bech32 HRP, which conflicts with Cockroach Chain's "cockroach" prefix.
+	suite.coordinator = evmibctesting.NewCoordinator(suite.T(), 3, 0, integration.SetupEvmd)
 	suite.evmChainA = suite.coordinator.GetChain(evmibctesting.GetEvmChainID(1))
-	suite.chainB = suite.coordinator.GetChain(evmibctesting.GetChainID(2))
-	suite.chainC = suite.coordinator.GetChain(evmibctesting.GetChainID(3))
+	suite.chainB = suite.coordinator.GetChain(evmibctesting.GetEvmChainID(2))
+	suite.chainC = suite.coordinator.GetChain(evmibctesting.GetEvmChainID(3))
 
 	// setup between evmChainA and chainB
 	// NOTE:
@@ -96,13 +99,13 @@ func (suite *TransferTestSuiteV2) TestOnSendPacket() {
 	}{
 		{
 			"transfer single denom",
-			sdk.DefaultBondDenom,
+			constants.ExampleAttoDenom,
 			func() {},
 			nil,
 		},
 		{
 			"transfer with invalid source port",
-			sdk.DefaultBondDenom,
+			constants.ExampleAttoDenom,
 			func() {
 				payload.SourcePort = invalidPortID
 			},
@@ -110,7 +113,7 @@ func (suite *TransferTestSuiteV2) TestOnSendPacket() {
 		},
 		{
 			"transfer with invalid destination port",
-			sdk.DefaultBondDenom,
+			constants.ExampleAttoDenom,
 			func() {
 				payload.DestinationPort = invalidPortID
 			},
@@ -118,7 +121,7 @@ func (suite *TransferTestSuiteV2) TestOnSendPacket() {
 		},
 		{
 			"transfer with invalid source client",
-			sdk.DefaultBondDenom,
+			constants.ExampleAttoDenom,
 			func() {
 				suite.pathAToB.EndpointA.ClientID = testclientid
 			},
@@ -126,7 +129,7 @@ func (suite *TransferTestSuiteV2) TestOnSendPacket() {
 		},
 		{
 			"transfer with invalid destination client",
-			sdk.DefaultBondDenom,
+			constants.ExampleAttoDenom,
 			func() {
 				suite.pathAToB.EndpointB.ClientID = testclientid
 			},
@@ -231,13 +234,13 @@ func (suite *TransferTestSuiteV2) TestOnRecvPacket() {
 	}{
 		{
 			"transfer single denom",
-			sdk.DefaultBondDenom,
+			constants.ExampleAttoDenom,
 			func() {},
 			false,
 		},
 		{
 			"transfer with invalid source port",
-			sdk.DefaultBondDenom,
+			constants.ExampleAttoDenom,
 			func() {
 				payload.SourcePort = invalidPortID
 			},
@@ -245,7 +248,7 @@ func (suite *TransferTestSuiteV2) TestOnRecvPacket() {
 		},
 		{
 			"transfer with invalid dest port",
-			sdk.DefaultBondDenom,
+			constants.ExampleAttoDenom,
 			func() {
 				payload.DestinationPort = invalidPortID
 			},
@@ -253,7 +256,7 @@ func (suite *TransferTestSuiteV2) TestOnRecvPacket() {
 		},
 		{
 			"transfer with invalid source client",
-			sdk.DefaultBondDenom,
+			constants.ExampleAttoDenom,
 			func() {
 				suite.pathBToA.EndpointB.ClientID = testclientid
 			},
@@ -261,7 +264,7 @@ func (suite *TransferTestSuiteV2) TestOnRecvPacket() {
 		},
 		{
 			"transfer with invalid destination client",
-			sdk.DefaultBondDenom,
+			constants.ExampleAttoDenom,
 			func() {
 				suite.pathBToA.EndpointA.ClientID = testclientid
 			},
@@ -273,8 +276,8 @@ func (suite *TransferTestSuiteV2) TestOnRecvPacket() {
 		suite.Run(tc.name, func() {
 			suite.SetupTest() // reset
 
-			simAppB := suite.chainB.GetSimApp()
-			originalBalance := simAppB.BankKeeper.GetBalance(
+			chainBApp := suite.chainB.App.(*evmd.EVMD)
+			originalBalance := chainBApp.BankKeeper.GetBalance(
 				suite.chainB.GetContext(),
 				suite.chainB.SenderAccount.GetAddress(),
 				tc.sourceDenomToTransfer,
@@ -294,8 +297,9 @@ func (suite *TransferTestSuiteV2) TestOnRecvPacket() {
 			)
 			_, err := suite.chainB.SendMsgs(msg)
 			suite.Require().NoError(err) // message committed
+			fee := evmibctesting.FeeCoins().AmountOf(tc.sourceDenomToTransfer)
 
-			token, err := simAppB.TransferKeeper.TokenFromCoin(suite.chainB.GetContext(), originalCoin)
+			token, err := chainBApp.TransferKeeper.TokenFromCoin(suite.chainB.GetContext(), originalCoin)
 			suite.Require().NoError(err)
 
 			transferData := types.NewFungibleTokenPacketData(
@@ -329,16 +333,16 @@ func (suite *TransferTestSuiteV2) TestOnRecvPacket() {
 				suite.Require().Equal(channeltypes.NewResultAcknowledgement([]byte{byte(1)}).Acknowledgement(), recvResult.Acknowledgement)
 
 				escrowAddress := types.GetEscrowAddress(types.PortID, suite.pathBToA.EndpointB.ClientID)
-				// check that the balance for evmChainA is updated
-				chainBBalance := simAppB.BankKeeper.GetBalance(
+				// check that the balance for chainB is updated (transfer + EVM fee)
+				chainBBalance := chainBApp.BankKeeper.GetBalance(
 					suite.chainB.GetContext(),
 					suite.chainB.SenderAccount.GetAddress(),
 					originalCoin.Denom,
 				)
-				suite.Require().Equal(originalBalance.Amount.Sub(amount).Int64(), chainBBalance.Amount.Int64())
+				suite.Require().Equal(originalBalance.Amount.Sub(fee).Sub(amount).Int64(), chainBBalance.Amount.Int64())
 
 				// check that module account escrow address has locked the tokens
-				chainBEscrowBalance := simAppB.BankKeeper.GetBalance(
+				chainBEscrowBalance := chainBApp.BankKeeper.GetBalance(
 					suite.chainB.GetContext(),
 					escrowAddress,
 					originalCoin.Denom,
@@ -371,7 +375,7 @@ func (suite *TransferTestSuiteV2) TestOnAckPacket() {
 	}{
 		{
 			"transfer single denom",
-			sdk.DefaultBondDenom,
+			constants.ExampleAttoDenom,
 		},
 	}
 
@@ -396,6 +400,7 @@ func (suite *TransferTestSuiteV2) TestOnAckPacket() {
 			)
 			_, err := suite.evmChainA.SendMsgs(msg)
 			suite.Require().NoError(err) // message committed
+			fee := evmibctesting.FeeCoins().AmountOf(tc.sourceDenomToTransfer)
 
 			token, err := evmApp.TransferKeeper.TokenFromCoin(suite.evmChainA.GetContext(), originalCoin)
 			suite.Require().NoError(err)
@@ -426,9 +431,9 @@ func (suite *TransferTestSuiteV2) TestOnAckPacket() {
 
 			// on successful ack, the tokens sent in packets should still be in escrow
 			escrowAddress := types.GetEscrowAddress(types.PortID, suite.pathAToB.EndpointA.ClientID)
-			// check that the balance for evmChainA is updated
+			// check that the balance for evmChainA is updated (transfer + EVM fee)
 			chainABalance := evmApp.BankKeeper.GetBalance(suite.evmChainA.GetContext(), suite.evmChainA.SenderAccount.GetAddress(), originalCoin.Denom)
-			suite.Require().Equal(originalBalance.Amount.Sub(amount).Int64(), chainABalance.Amount.Int64())
+			suite.Require().Equal(originalBalance.Amount.Sub(fee).Sub(amount).Int64(), chainABalance.Amount.Int64())
 
 			// check that module account escrow address has locked the tokens
 			chainAEscrowBalance := evmApp.BankKeeper.GetBalance(suite.evmChainA.GetContext(), escrowAddress, originalCoin.Denom)
@@ -450,14 +455,13 @@ func (suite *TransferTestSuiteV2) TestOnAckPacket() {
 			)
 			suite.Require().NoError(err)
 
-			// on error ack, the tokens sent in packets should be returned to sender
-			// check that the balance for evmChainA is refunded
+			// on error ack, the tokens sent in packets should be returned to sender (fee still spent)
 			chainABalance = evmApp.BankKeeper.GetBalance(
 				suite.evmChainA.GetContext(),
 				suite.evmChainA.SenderAccount.GetAddress(),
 				originalCoin.Denom,
 			)
-			suite.Require().Equal(originalBalance.Amount, chainABalance.Amount)
+			suite.Require().Equal(originalBalance.Amount.Sub(fee), chainABalance.Amount)
 
 			// check that module account escrow address has no tokens
 			chainAEscrowBalance = evmApp.BankKeeper.GetBalance(
@@ -478,7 +482,7 @@ func (suite *TransferTestSuiteV2) TestOnTimeoutPacket() {
 	}{
 		{
 			"transfer single denom",
-			sdk.DefaultBondDenom,
+			constants.ExampleAttoDenom,
 		},
 	}
 
@@ -503,6 +507,7 @@ func (suite *TransferTestSuiteV2) TestOnTimeoutPacket() {
 			)
 			_, err := suite.evmChainA.SendMsgs(msg)
 			suite.Require().NoError(err) // message committed
+			fee := evmibctesting.FeeCoins().AmountOf(tc.sourceDenomToTransfer)
 
 			token, err := evmApp.TransferKeeper.TokenFromCoin(suite.evmChainA.GetContext(), originalCoin)
 			suite.Require().NoError(err)
@@ -522,13 +527,13 @@ func (suite *TransferTestSuiteV2) TestOnTimeoutPacket() {
 
 			// on successful send, the tokens sent in packets should be in escrow
 			escrowAddress := types.GetEscrowAddress(types.PortID, suite.pathAToB.EndpointA.ClientID)
-			// check that the balance for evmChainA is updated
+			// check that the balance for evmChainA is updated (transfer + EVM fee)
 			chainABalance := evmApp.BankKeeper.GetBalance(
 				suite.evmChainA.GetContext(),
 				suite.evmChainA.SenderAccount.GetAddress(),
 				originalCoin.Denom,
 			)
-			suite.Require().Equal(originalBalance.Amount.Sub(amount).Int64(), chainABalance.Amount.Int64())
+			suite.Require().Equal(originalBalance.Amount.Sub(fee).Sub(amount).Int64(), chainABalance.Amount.Int64())
 
 			// check that module account escrow address has locked the tokens
 			chainAEscrowBalance := evmApp.BankKeeper.GetBalance(
@@ -547,14 +552,13 @@ func (suite *TransferTestSuiteV2) TestOnTimeoutPacket() {
 			)
 			suite.Require().NoError(err)
 
-			// on timeout, the tokens sent in packets should be returned to sender
-			// check that the balance for evmChainA is refunded
+			// on timeout, the tokens sent in packets should be returned to sender (fee still spent)
 			chainABalance = evmApp.BankKeeper.GetBalance(
 				suite.evmChainA.GetContext(),
 				suite.evmChainA.SenderAccount.GetAddress(),
 				originalCoin.Denom,
 			)
-			suite.Require().Equal(originalBalance.Amount, chainABalance.Amount)
+			suite.Require().Equal(originalBalance.Amount.Sub(fee), chainABalance.Amount)
 
 			// check that module account escrow address has no tokens
 			chainAEscrowBalance = evmApp.BankKeeper.GetBalance(

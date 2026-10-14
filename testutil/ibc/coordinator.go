@@ -48,7 +48,8 @@ func NewCoordinator(t *testing.T, nEVMChains, mCosmosChains int, evmAppCreator i
 		chains[strconv.FormatUint(evmChainID, 10)] = NewTestChain(t, true, coord, chainID)
 	}
 
-	// setup Cosmos chains
+	// setup Cosmos chains (unused by Cockroach IBC suites — they use EVM-only
+	// coordinators because simapp hardcodes the "cosmos" bech32 HRP).
 	ibctesting.DefaultTestingAppInit = ibctesting.SetupTestingApp
 	for j := 1 + nEVMChains; j <= nEVMChains+mCosmosChains; j++ {
 		chainID := GetChainID(j)

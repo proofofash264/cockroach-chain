@@ -1,0 +1,13 @@
+syntax = "proto3";
+package cockroach.blacklist.v1;
+option go_package = "github.com/cosmos/evm/evmd/x/blacklist/types";
+import "cockroach/blacklist/v1/blacklist.proto";
+
+service Query {
+  rpc IsFrozen(QueryIsFrozenRequest) returns (QueryIsFrozenResponse);
+  rpc FrozenAddresses(QueryFrozenAddressesRequest) returns (QueryFrozenAddressesResponse);
+}
+message QueryIsFrozenRequest { string address = 1; }
+message QueryIsFrozenResponse { bool frozen = 1; string reason = 2; }
+message QueryFrozenAddressesRequest {}
+message QueryFrozenAddressesResponse { repeated FrozenEntry entries = 1; }

@@ -83,8 +83,8 @@ func NewRootCmd() *cobra.Command {
 		WithLedgerHasProtobuf(true)
 
 	rootCmd := &cobra.Command{
-		Use:   "evmd",
-		Short: "exemplary Cosmos EVM app",
+		Use:   "cockroachd",
+		Short: "Cockroach Chain app",
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			// set the default command outputs
 			cmd.SetOut(cmd.OutOrStdout())

@@ -1,0 +1,38 @@
+syntax = "proto3";
+package cockroach.standby.v1;
+option go_package = "github.com/cosmos/evm/evmd/x/standby/types";
+
+message Params {
+  uint32 max_standby = 1;
+  string min_self_stake = 2;
+  uint64 heartbeat_window = 3;
+}
+message GenesisState {
+  Params params = 1;
+  string total_paid = 2;
+}
+
+message MsgHeartbeat {
+  string operator = 1;
+  string validator_address = 2;
+  int64 height = 3;
+  bytes block_hash = 4;
+  bytes signature = 5;
+}
+message MsgHeartbeatResponse {}
+message MsgUpdateParams {
+  string authority = 1;
+  Params params = 2;
+}
+message MsgUpdateParamsResponse {}
+
+message QueryParamsRequest {}
+message QueryParamsResponse { Params params = 1; }
+
+service Msg {
+  rpc Heartbeat(MsgHeartbeat) returns (MsgHeartbeatResponse);
+  rpc UpdateParams(MsgUpdateParams) returns (MsgUpdateParamsResponse);
+}
+service Query {
+  rpc Params(QueryParamsRequest) returns (QueryParamsResponse);
+}

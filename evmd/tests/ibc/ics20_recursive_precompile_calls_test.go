@@ -40,7 +40,9 @@ const (
 	InitialTokenAmount int64 = 1_000_000_000_000_000_000 // 1 token with 18 decimals
 	DelegationAmount   int64 = 1_000_000_000_000_000_000 // 1 token for delegation
 	RewardAmount             = 100                       // 100 base units for rewards
-	ExpectedRewards          = "50.000000000000000000"   // Expected reward amount after allocation
+	// With fixed 10% commission, 100 reward units → 10 to validator, 90 to
+	// delegators; equal self-delegation + contract stake → 45 each.
+	ExpectedRewards = "45.000000000000000000"
 
 	// Test configuration
 	SenderIndex   = 1
@@ -363,7 +365,7 @@ func (suite *ICS20RecursivePrecompileCallsTestSuite) TestHandleMsgTransfer() {
 				suite.Require().NoError(err)
 				contractBondDenomBalance := evmAppA.BankKeeper.GetBalance(suite.chainA.GetContext(), nativeErc20.ContractAddr.Bytes(), bondDenom)
 
-				suite.Require().Equal(sdkmath.NewInt(50), contractBondDenomBalance.Amount)
+				suite.Require().Equal(sdkmath.NewInt(45), contractBondDenomBalance.Amount)
 
 				// Check distribution rewards after transfer
 				afterRewards, err := querier.DelegationRewards(suite.chainA.GetContext(), &distrtypes.QueryDelegationRewardsRequest{

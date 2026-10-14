@@ -1,0 +1,25 @@
+syntax = "proto3";
+package cockroach.standby.v1;
+option go_package = "github.com/cosmos/evm/evmd/x/standby/types";
+
+import "gogoproto/gogo.proto";
+import "cosmos_proto/cosmos.proto";
+import "amino/amino.proto";
+
+message Params {
+  uint32 max_standby = 1;
+  string min_self_stake = 2 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  uint64 heartbeat_window = 3;
+}
+message GenesisState {
+  Params params = 1 [(gogoproto.nullable) = false];
+  string total_paid = 2 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}

@@ -23,6 +23,16 @@ import (
 	evmencoding "github.com/cosmos/evm/encoding"
 	evmaddress "github.com/cosmos/evm/encoding/address"
 	evmconfig "github.com/cosmos/evm/evmd/config"
+	"github.com/cosmos/evm/evmd/x/blacklist"
+	blacklistante "github.com/cosmos/evm/evmd/x/blacklist/ante"
+	blacklistkeeper "github.com/cosmos/evm/evmd/x/blacklist/keeper"
+	blacklisttypes "github.com/cosmos/evm/evmd/x/blacklist/types"
+	"github.com/cosmos/evm/evmd/x/burn"
+	burnkeeper "github.com/cosmos/evm/evmd/x/burn/keeper"
+	burntypes "github.com/cosmos/evm/evmd/x/burn/types"
+	"github.com/cosmos/evm/evmd/x/standby"
+	standbykeeper "github.com/cosmos/evm/evmd/x/standby/keeper"
+	standbytypes "github.com/cosmos/evm/evmd/x/standby/types"
 	evmmempool "github.com/cosmos/evm/mempool"
 	precompiletypes "github.com/cosmos/evm/precompiles/types"
 	cosmosevmserver "github.com/cosmos/evm/server"
@@ -135,7 +145,7 @@ func init() {
 	defaultNodeHome = evmconfig.MustGetDefaultNodeHome()
 }
 
-const appName = "evmd"
+const appName = "cockroachd"
 
 // defaultNodeHome default home directories for the application daemon
 var defaultNodeHome string
@@ -185,6 +195,11 @@ type EVMD struct {
 	EVMKeeper       *evmkeeper.Keeper
 	Erc20Keeper     erc20keeper.Keeper
 	EVMMempool      sdkmempool.ExtMempool
+
+	// Cockroach Chain keepers
+	BurnKeeper      burnkeeper.Keeper
+	BlacklistKeeper blacklistkeeper.Keeper
+	StandbyKeeper   standbykeeper.Keeper
 
 	// the module manager
 	ModuleManager      *module.Manager
@@ -241,6 +256,8 @@ func NewExampleApp(
 		ibcexported.StoreKey, ibctransfertypes.StoreKey,
 		// Cosmos EVM store keys
 		evmtypes.StoreKey, feemarkettypes.StoreKey, erc20types.StoreKey,
+		// Cockroach Chain store keys
+		burntypes.StoreKey, blacklisttypes.StoreKey, standbytypes.StoreKey,
 	)
 	oKeys := storetypes.NewObjectStoreKeys(banktypes.ObjectStoreKey, evmtypes.ObjectKey)
 
@@ -342,6 +359,8 @@ func NewExampleApp(
 		app.BankKeeper,
 		authtypes.FeeCollectorName,
 		authAddr,
+		// SDK v0.54: custom inflation is set on the keeper, not NewAppModule.
+		mintkeeper.WithMintFn(mintkeeper.DefaultMintFn(StakeBasedInflation)),
 	)
 
 	app.DistrKeeper = distrkeeper.NewKeeper(
@@ -364,10 +383,37 @@ func NewExampleApp(
 
 	app.FeeGrantKeeper = feegrantkeeper.NewKeeper(appCodec, runtime.NewKVStoreService(keys[feegrant.StoreKey]), app.AccountKeeper)
 
+	app.BurnKeeper = burnkeeper.NewKeeper(
+		appCodec,
+		runtime.NewKVStoreService(keys[burntypes.StoreKey]),
+		authAddr,
+		app.AccountKeeper,
+		app.BankKeeper,
+		app.StakingKeeper,
+	)
+	app.BlacklistKeeper = blacklistkeeper.NewKeeper(
+		runtime.NewKVStoreService(keys[blacklisttypes.StoreKey]),
+		authAddr,
+	)
+	app.BankKeeper.AppendSendRestriction(blacklistante.SendRestriction(app.BlacklistKeeper))
+
+	app.StandbyKeeper = standbykeeper.NewKeeper(
+		appCodec,
+		runtime.NewKVStoreService(keys[standbytypes.StoreKey]),
+		authAddr,
+		app.StakingKeeper,
+		app.BankKeeper,
+		&app.MintKeeper,
+	)
+
 	// register the staking hooks
 	// NOTE: stakingKeeper above is passed by reference, so that it will contain these hooks
 	app.StakingKeeper.SetHooks(
-		stakingtypes.NewMultiStakingHooks(app.DistrKeeper.Hooks(), app.SlashingKeeper.Hooks()),
+		stakingtypes.NewMultiStakingHooks(
+			app.DistrKeeper.Hooks(),
+			app.SlashingKeeper.Hooks(),
+			CommissionGuard{sk: app.StakingKeeper},
+		),
 	)
 
 	app.AuthzKeeper = authzkeeper.NewKeeper(
@@ -583,6 +629,10 @@ func NewExampleApp(
 		vmModule,
 		feemarket.NewAppModule(app.FeeMarketKeeper),
 		erc20.NewAppModule(app.Erc20Keeper, app.AccountKeeper),
+		// Cockroach Chain modules
+		burn.NewAppModule(app.BurnKeeper),
+		blacklist.NewAppModule(app.BlacklistKeeper),
+		standby.NewAppModule(app.StandbyKeeper),
 	)
 
 	// BasicModuleManager defines the module BasicManager which is in charge of setting up basic,
@@ -615,6 +665,7 @@ func NewExampleApp(
 	// NOTE: staking module is required if HistoricalEntries param > 0
 	// NOTE: capability module's beginblocker must come before any modules using capabilities (e.g. IBC)
 	app.ModuleManager.SetOrderBeginBlockers(
+		burntypes.ModuleName, // burn last block's fees before mint/distribution
 		minttypes.ModuleName,
 
 		// IBC modules
@@ -625,12 +676,15 @@ func NewExampleApp(
 		evmtypes.ModuleName, // NOTE: EVM BeginBlocker must come after FeeMarket BeginBlocker
 
 		// TODO: remove no-ops? check if all are no-ops before removing
-		distrtypes.ModuleName, slashingtypes.ModuleName,
+		distrtypes.ModuleName,
+		standbytypes.ModuleName, // after distr; pays finished UTC day
+		slashingtypes.ModuleName,
 		evidencetypes.ModuleName, stakingtypes.ModuleName,
 		authtypes.ModuleName, banktypes.ModuleName, govtypes.ModuleName, genutiltypes.ModuleName,
 		authz.ModuleName, feegrant.ModuleName,
 		consensusparamtypes.ModuleName,
 		vestingtypes.ModuleName,
+		blacklisttypes.ModuleName,
 	)
 
 	// NOTE: the feemarket module should go last in order of end blockers that are actually doing something,
@@ -644,6 +698,8 @@ func NewExampleApp(
 		// Cosmos EVM EndBlockers
 		evmtypes.ModuleName, erc20types.ModuleName, feemarkettypes.ModuleName,
 
+		burntypes.ModuleName, // burn address balance at block end
+
 		// no-ops
 		ibcexported.ModuleName, ibctransfertypes.ModuleName,
 		distrtypes.ModuleName,
@@ -651,6 +707,7 @@ func NewExampleApp(
 		genutiltypes.ModuleName, evidencetypes.ModuleName, authz.ModuleName,
 		feegrant.ModuleName, upgradetypes.ModuleName, consensusparamtypes.ModuleName,
 		vestingtypes.ModuleName,
+		blacklisttypes.ModuleName, standbytypes.ModuleName,
 	)
 
 	// NOTE: The genutils module must occur after staking so that pools are
@@ -673,6 +730,7 @@ func NewExampleApp(
 		ibctransfertypes.ModuleName,
 		genutiltypes.ModuleName, evidencetypes.ModuleName, authz.ModuleName,
 		feegrant.ModuleName, upgradetypes.ModuleName, vestingtypes.ModuleName,
+		burntypes.ModuleName, blacklisttypes.ModuleName, standbytypes.ModuleName,
 	}
 	app.ModuleManager.SetOrderInitGenesis(genesisModuleOrder...)
 	app.ModuleManager.SetOrderExportGenesis(genesisModuleOrder...)
@@ -812,7 +870,11 @@ func (app *EVMD) setAnteHandler(txConfig client.TxConfig, maxGasWanted uint64) {
 		panic(err)
 	}
 
-	app.SetAnteHandler(evmante.NewAnteHandler(options))
+	base := evmante.NewAnteHandler(options)
+	freeze := blacklistante.FreezeDecorator{K: app.BlacklistKeeper}
+	app.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx, sim bool) (sdk.Context, error) {
+		return freeze.AnteHandle(ctx, tx, sim, base)
+	})
 }
 
 func (app *EVMD) onPendingTx(hash common.Hash) {
@@ -842,7 +904,36 @@ func (app *EVMD) Name() string { return app.BaseApp.Name() }
 
 // BeginBlocker application updates every begin block
 func (app *EVMD) BeginBlocker(ctx sdk.Context) (sdk.BeginBlock, error) {
+	if err := app.applyYearlyDecay(ctx); err != nil {
+		return sdk.BeginBlock{}, err
+	}
 	return app.ModuleManager.BeginBlock(ctx)
+}
+
+// applyYearlyDecay lowers the reward rate once per chain year (blocks_per_year).
+func (app *EVMD) applyYearlyDecay(ctx sdk.Context) error {
+	p, err := app.MintKeeper.Params.Get(ctx)
+	if err != nil {
+		return err
+	}
+	h := ctx.BlockHeight()
+	if h <= 0 || p.BlocksPerYear == 0 || uint64(h)%p.BlocksPerYear != 0 {
+		return nil
+	}
+	next := p.InflationMax.Sub(p.InflationRateChange)
+	if next.LT(p.InflationMin) {
+		next = p.InflationMin
+	}
+	if next.Equal(p.InflationMax) {
+		return nil
+	}
+	p.InflationMax = next
+	if err := app.MintKeeper.Params.Set(ctx, p); err != nil {
+		return err
+	}
+	ctx.EventManager().EmitEvent(sdk.NewEvent("reward_rate_decayed",
+		sdk.NewAttribute("new_rate", next.String())))
+	return nil
 }
 
 // EndBlocker application updates every end block

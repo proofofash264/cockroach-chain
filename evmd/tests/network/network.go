@@ -420,10 +420,8 @@ func New(l Logger, baseDir string, cfg Config) (*Network, error) {
 		genBalances = append(genBalances, banktypes.Balance{Address: addr.String(), Coins: balances.Sort()})
 		genAccounts = append(genAccounts, authtypes.NewBaseAccount(addr, nil, 0, 0))
 
-		commission, err := math.LegacyNewDecFromStr("0.5")
-		if err != nil {
-			return nil, err
-		}
+		// Cockroach Chain requires commission rate and max rate exactly 0.10.
+		commission := math.LegacyNewDecWithPrec(10, 2)
 
 		// determine validator bonded tokens
 		bondedTokens := cfg.BondedTokens
@@ -441,7 +439,7 @@ func New(l Logger, baseDir string, cfg Config) (*Network, error) {
 			valPubKeys[i],
 			sdk.NewCoin(cfg.BondDenom, bondedTokens),
 			stakingtypes.NewDescription(nodeDirName, "", "", "", ""),
-			stakingtypes.NewCommissionRates(commission, math.LegacyOneDec(), math.LegacyOneDec()),
+			stakingtypes.NewCommissionRates(commission, commission, math.LegacyZeroDec()),
 			math.OneInt(),
 		)
 		if err != nil {

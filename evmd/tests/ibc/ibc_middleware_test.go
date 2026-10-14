@@ -53,9 +53,11 @@ type MiddlewareTestSuite struct {
 
 // SetupTest initializes the coordinator and test chains before each test.
 func (suite *MiddlewareTestSuite) SetupTest() {
-	suite.coordinator = evmibctesting.NewCoordinator(suite.T(), 1, 1, integration.SetupEvmd)
+	// Use two EVM chains: companion ibc-go simapps hardcode the "cosmos"
+	// bech32 HRP, which conflicts with Cockroach Chain's "cockroach" prefix.
+	suite.coordinator = evmibctesting.NewCoordinator(suite.T(), 2, 0, integration.SetupEvmd)
 	suite.evmChainA = suite.coordinator.GetChain(evmibctesting.GetEvmChainID(1))
-	suite.chainB = suite.coordinator.GetChain(evmibctesting.GetChainID(2))
+	suite.chainB = suite.coordinator.GetChain(evmibctesting.GetEvmChainID(2))
 
 	// Setup path
 	suite.path = evmibctesting.NewPath(suite.evmChainA, suite.chainB)
@@ -386,7 +388,7 @@ func (suite *MiddlewareTestSuite) TestOnRecvPacketWithCallback() {
 			path = suite.path
 
 			ctxB := suite.chainB.GetContext()
-			bondDenom, err := suite.chainB.GetSimApp().StakingKeeper.BondDenom(ctxB)
+			bondDenom, err := suite.chainB.App.(*evmd.EVMD).StakingKeeper.BondDenom(ctxB)
 			suite.Require().NoError(err)
 
 			// Generate the isolated address for the sender
@@ -568,7 +570,7 @@ func (suite *MiddlewareTestSuite) TestOnRecvPacket() {
 			suite.SetupTest()
 
 			ctxB := suite.chainB.GetContext()
-			bondDenom, err := suite.chainB.GetSimApp().StakingKeeper.BondDenom(ctxB)
+			bondDenom, err := suite.chainB.App.(*evmd.EVMD).StakingKeeper.BondDenom(ctxB)
 			suite.Require().NoError(err)
 
 			sendAmt := ibctesting.DefaultCoinAmount
